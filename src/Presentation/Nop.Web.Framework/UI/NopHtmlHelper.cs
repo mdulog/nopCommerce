@@ -1,7 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Globalization;
-using System.Linq;
+﻿using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -35,27 +32,29 @@ namespace Nop.Web.Framework.UI
     {
         #region Fields
 
-        private readonly AppSettings _appSettings;
-        private readonly HtmlEncoder _htmlEncoder;
-        private readonly IActionContextAccessor _actionContextAccessor;
-        private readonly IAssetPipeline _assetPipeline;
-        private readonly IUrlHelperFactory _urlHelperFactory;
-        private readonly IWebHostEnvironment _webHostEnvironment;
-        private readonly SeoSettings _seoSettings;
+        protected readonly AppSettings _appSettings;
+        protected readonly HtmlEncoder _htmlEncoder;
+        protected readonly IActionContextAccessor _actionContextAccessor;
+        protected readonly IAssetPipeline _assetPipeline;
+        protected readonly Lazy<ILocalizationService> _localizationService;
+        protected readonly IStoreContext _storeContext;
+        protected readonly IUrlHelperFactory _urlHelperFactory;
+        protected readonly IWebHostEnvironment _webHostEnvironment;
+        protected readonly SeoSettings _seoSettings;
 
-        private readonly Dictionary<ResourceLocation, List<ScriptReferenceMeta>> _scriptParts = new();
-        private readonly Dictionary<ResourceLocation, List<string>> _inlineScriptParts = new();
-        private readonly List<CssReferenceMeta> _cssParts = new();
+        protected readonly Dictionary<ResourceLocation, List<ScriptReferenceMeta>> _scriptParts = new();
+        protected readonly Dictionary<ResourceLocation, List<string>> _inlineScriptParts = new();
+        protected readonly List<CssReferenceMeta> _cssParts = new();
 
-        private readonly List<string> _canonicalUrlParts = new();
-        private readonly List<string> _headCustomParts = new();
-        private readonly List<string> _metaDescriptionParts = new();
-        private readonly List<string> _metaKeywordParts = new();
-        private readonly List<string> _pageCssClassParts = new();
-        private readonly List<string> _titleParts = new();
+        protected readonly List<string> _canonicalUrlParts = new();
+        protected readonly List<string> _headCustomParts = new();
+        protected readonly List<string> _metaDescriptionParts = new();
+        protected readonly List<string> _metaKeywordParts = new();
+        protected readonly List<string> _pageCssClassParts = new();
+        protected readonly List<string> _titleParts = new();
 
-        private string _activeAdminMenuSystemName;
-        private string _editPageUrl;
+        protected string _activeAdminMenuSystemName;
+        protected string _editPageUrl;
 
         #endregion
 
@@ -65,6 +64,8 @@ namespace Nop.Web.Framework.UI
             HtmlEncoder htmlEncoder,
             IActionContextAccessor actionContextAccessor,
             IAssetPipeline assetPipeline,
+            Lazy<ILocalizationService> localizationService,
+            IStoreContext storeContext,
             IUrlHelperFactory urlHelperFactory,
             IWebHostEnvironment webHostEnvironment,
             SeoSettings seoSettings)
@@ -72,7 +73,9 @@ namespace Nop.Web.Framework.UI
             _appSettings = appSettings;
             _htmlEncoder = htmlEncoder;
             _actionContextAccessor = actionContextAccessor;
+            _localizationService = localizationService;
             _assetPipeline = assetPipeline;
+            _storeContext = storeContext;
             _urlHelperFactory = urlHelperFactory;
             _webHostEnvironment = webHostEnvironment;
             _seoSettings = seoSettings;
@@ -80,9 +83,9 @@ namespace Nop.Web.Framework.UI
 
         #endregion
 
-        #region Utils
+        #region Utilities
 
-        private IAsset CreateCssAsset(string bundleKey, string[] assetFiles)
+        protected IAsset CreateCssAsset(string bundleKey, string[] assetFiles)
         {
             var asset = _assetPipeline.AddBundle(bundleKey, $"{MimeTypes.TextCss}; charset=UTF-8", assetFiles)
                 .EnforceFileExtensions(".css")
@@ -97,7 +100,7 @@ namespace Nop.Web.Framework.UI
             return asset;
         }
 
-        private IAsset CreateJavaScriptAsset(string bundleKey, string[] assetFiles)
+        protected IAsset CreateJavaScriptAsset(string bundleKey, string[] assetFiles)
         {
             var asset = _assetPipeline.AddBundle(bundleKey, $"{MimeTypes.TextJavascript}; charset=UTF-8", assetFiles)
                         .EnforceFileExtensions(".js", ".es5", ".es6")
@@ -111,7 +114,7 @@ namespace Nop.Web.Framework.UI
             return asset;
         }
 
-        private static string GetAssetKey(string[] keys, string suffix)
+        protected static string GetAssetKey(string[] keys, string suffix)
         {
             if (keys is null || keys.Length == 0)
                 throw new ArgumentNullException(nameof(keys));
@@ -136,7 +139,7 @@ namespace Nop.Web.Framework.UI
         /// <param name="createAsset">The function which creates a bundle</param>
         /// <param name="sourceFiles">Relative file names of the sources to optimize; if not specified, will use <paramref name="bundlePath"/></param>
         /// <returns>The bundle</returns>
-        private IAsset GetOrCreateBundle(string bundlePath, Func<string, string[], IAsset> createAsset, params string[] sourceFiles)
+        protected IAsset GetOrCreateBundle(string bundlePath, Func<string, string[], IAsset> createAsset, params string[] sourceFiles)
         {
             if (string.IsNullOrEmpty(bundlePath))
                 throw new ArgumentNullException(nameof(bundlePath));
@@ -198,10 +201,13 @@ namespace Nop.Web.Framework.UI
         /// </summary>
         /// <param name="addDefaultTitle">A value indicating whether to insert a default title</param>
         /// <param name="part">Title part</param>
-        /// <returns>Generated HTML string</returns>
-        public virtual IHtmlContent GenerateTitle(bool addDefaultTitle = true, string part = "")
+        /// <returns>A task that represents the asynchronous operation
+        /// The task result contains generated HTML string</returns>
+        public virtual async Task<IHtmlContent> GenerateTitleAsync(bool addDefaultTitle = true, string part = "")
         {
             AppendTitleParts(part);
+            var store = await _storeContext.GetCurrentStoreAsync();
+            var defaultTitle = await _localizationService.Value.GetLocalizedAsync(store, s => s.DefaultTitle);
 
             var specificTitle = string.Join(_seoSettings.PageTitleSeparator, _titleParts.AsEnumerable().Reverse().ToArray());
             string result;
@@ -213,13 +219,13 @@ namespace Nop.Web.Framework.UI
                     {
                         case PageTitleSeoAdjustment.PagenameAfterStorename:
                             {
-                                result = string.Join(_seoSettings.PageTitleSeparator, _seoSettings.DefaultTitle, specificTitle);
+                                result = string.Join(_seoSettings.PageTitleSeparator, defaultTitle, specificTitle);
                             }
                             break;
                         case PageTitleSeoAdjustment.StorenameAfterPagename:
                         default:
                             {
-                                result = string.Join(_seoSettings.PageTitleSeparator, specificTitle, _seoSettings.DefaultTitle);
+                                result = string.Join(_seoSettings.PageTitleSeparator, specificTitle, defaultTitle);
                             }
                             break;
                     }
@@ -229,9 +235,9 @@ namespace Nop.Web.Framework.UI
             }
             else
                 //store name only
-                result = _seoSettings.DefaultTitle;
+                result = defaultTitle;
 
-            return new HtmlString(_htmlEncoder.Encode(result));
+            return new HtmlString(_htmlEncoder.Encode(result ?? string.Empty));
         }
 
         /// <summary>
@@ -262,15 +268,19 @@ namespace Nop.Web.Framework.UI
         /// Generate all description parts
         /// </summary>
         /// <param name="part">Meta description part</param>
-        /// <returns>Generated HTML string</returns>
-        public virtual IHtmlContent GenerateMetaDescription(string part = "")
+        /// <returns>A task that represents the asynchronous operation
+        /// The task result contains generated HTML string</returns>
+        public virtual async Task<IHtmlContent> GenerateMetaDescriptionAsync(string part = "")
         {
             AppendMetaDescriptionParts(part);
 
             var metaDescription = string.Join(", ", _metaDescriptionParts.AsEnumerable().Reverse().ToArray());
-            var result = !string.IsNullOrEmpty(metaDescription) ? metaDescription : _seoSettings.DefaultMetaDescription;
+            var result = !string.IsNullOrEmpty(metaDescription)
+                ? metaDescription
+                : await _localizationService.Value.GetLocalizedAsync(await _storeContext.GetCurrentStoreAsync(),
+                    s => s.DefaultMetaDescription);
 
-            return new HtmlString(_htmlEncoder.Encode(result));
+            return new HtmlString(_htmlEncoder.Encode(result ?? string.Empty));
         }
 
         /// <summary>
@@ -301,15 +311,19 @@ namespace Nop.Web.Framework.UI
         /// Generate all keyword parts
         /// </summary>
         /// <param name="part">Meta keyword part</param>
-        /// <returns>Generated HTML string</returns>
-        public virtual IHtmlContent GenerateMetaKeywords(string part = "")
+        /// <returns>A task that represents the asynchronous operation
+        /// The task result contains generated HTML string</returns>
+        public virtual async Task<IHtmlContent> GenerateMetaKeywordsAsync(string part = "")
         {
             AppendMetaKeywordParts(part);
 
             var metaKeyword = string.Join(", ", _metaKeywordParts.AsEnumerable().Reverse().ToArray());
-            var result = !string.IsNullOrEmpty(metaKeyword) ? metaKeyword : _seoSettings.DefaultMetaKeywords;
+            var result = !string.IsNullOrEmpty(metaKeyword)
+                ? metaKeyword
+                : await _localizationService.Value.GetLocalizedAsync(await _storeContext.GetCurrentStoreAsync(),
+                    s => s.DefaultMetaKeywords);
 
-            return new HtmlString(_htmlEncoder.Encode(result));
+            return new HtmlString(_htmlEncoder.Encode(result ?? string.Empty));
         }
 
         /// <summary>
@@ -551,9 +565,12 @@ namespace Nop.Web.Framework.UI
         /// </summary>
         /// <returns>Generated HTML string</returns>
         public virtual IHtmlContent GenerateCssFiles()
-        {
+        {            
             if (_cssParts.Count == 0)
                 return HtmlString.Empty;
+
+            if (_actionContextAccessor.ActionContext == null)
+                throw new ArgumentNullException(nameof(_actionContextAccessor.ActionContext));
 
             var result = new StringBuilder();
 
@@ -585,9 +602,6 @@ namespace Nop.Web.Framework.UI
             var styles = _cssParts
                     .Where(item => !woConfig.EnableCssBundling || item.ExcludeFromBundle || !item.IsLocal)
                     .Distinct();
-
-            if (_actionContextAccessor.ActionContext == null)
-                throw new ArgumentNullException(nameof(_actionContextAccessor.ActionContext));
 
             foreach (var item in styles)
             {
@@ -819,7 +833,7 @@ namespace Nop.Web.Framework.UI
         /// <summary>
         /// JS file meta data
         /// </summary>
-        private partial record ScriptReferenceMeta
+        protected partial record ScriptReferenceMeta
         {
             /// <summary>
             /// A value indicating whether to exclude the script from bundling
@@ -840,7 +854,7 @@ namespace Nop.Web.Framework.UI
         /// <summary>
         /// CSS file meta data
         /// </summary>
-        private partial record CssReferenceMeta
+        protected partial record CssReferenceMeta
         {
             /// <summary>
             /// A value indicating whether to exclude the script from bundling

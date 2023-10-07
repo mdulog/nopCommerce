@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Data;
-using System.Globalization;
-using System.Linq;
+﻿using System.Globalization;
 using FluentMigrator;
 using Nop.Core;
 using Nop.Core.Domain.Common;
@@ -18,10 +14,10 @@ using Nop.Core.Domain.Shipping;
 
 namespace Nop.Data.Migrations.UpgradeTo460
 {
-    [NopMigration("2022-02-03 00:00:00", "4.60.0", UpdateMigrationType.Data, MigrationProcessType.Update)]
+    [NopUpdateMigration("2023-07-26 14:00:00", "4.60", UpdateMigrationType.Data)]
     public class DataMigration : Migration
     {
-        private readonly INopDataProvider _dataProvider;
+        protected readonly INopDataProvider _dataProvider;
 
         public DataMigration(INopDataProvider dataProvider)
         {
@@ -33,20 +29,23 @@ namespace Nop.Data.Migrations.UpgradeTo460
         /// </summary>
         public override void Up()
         {
+            //#6789 GenericAttribute was previously named CustomCustomerAttributes and not CustomCustomerAttributesXML
+            var customCustomerAttributeName = "CustomCustomerAttributes";
+
             //#4601 customer attribute values to customer table column values
-            var attributeKeys = new [] { nameof(Customer.FirstName), nameof(Customer.LastName), nameof(Customer.Gender),
+            var attributeKeys = new[] { nameof(Customer.FirstName), nameof(Customer.LastName), nameof(Customer.Gender),
                 nameof(Customer.Company), nameof(Customer.StreetAddress), nameof(Customer.StreetAddress2), nameof(Customer.ZipPostalCode),
                 nameof(Customer.City), nameof(Customer.County), nameof(Customer.Phone), nameof(Customer.Fax), nameof(Customer.VatNumber),
-                nameof(Customer.TimeZoneId), nameof(Customer.CustomCustomerAttributesXML), nameof(Customer.CountryId),
+                nameof(Customer.TimeZoneId), nameof(Customer.CountryId),
                 nameof(Customer.StateProvinceId), nameof(Customer.VatNumberStatusId), nameof(Customer.CurrencyId), nameof(Customer.LanguageId),
-                nameof(Customer.TaxDisplayTypeId), nameof(Customer.DateOfBirth)};
+                nameof(Customer.TaxDisplayTypeId), nameof(Customer.DateOfBirth), customCustomerAttributeName };
 
             var languages = _dataProvider.GetTable<Language>().ToList();
             var currencies = _dataProvider.GetTable<Currency>().ToList();
             var customerRole = _dataProvider.GetTable<CustomerRole>().FirstOrDefault(cr => cr.SystemName == NopCustomerDefaults.RegisteredRoleName);
             var customerRoleId = customerRole?.Id ?? 0;
 
-            var query = 
+            var query =
                 from c in _dataProvider.GetTable<Customer>()
                 join crm in _dataProvider.GetTable<CustomerCustomerRoleMapping>() on c.Id equals crm.CustomerId
                 where !c.Deleted && (customerRoleId == 0 || crm.CustomerRoleId == customerRoleId)
@@ -113,7 +112,6 @@ namespace Nop.Data.Migrations.UpgradeTo460
                     customer.Fax = getAttributeValue(customerAttributes, nameof(Customer.Fax), castToString);
                     customer.VatNumber = getAttributeValue(customerAttributes, nameof(Customer.VatNumber), castToString);
                     customer.TimeZoneId = getAttributeValue(customerAttributes, nameof(Customer.TimeZoneId), castToString);
-                    customer.CustomCustomerAttributesXML = getAttributeValue<string>(customerAttributes, nameof(Customer.CustomCustomerAttributesXML), castToString, int.MaxValue);
                     customer.CountryId = getAttributeValue(customerAttributes, nameof(Customer.CountryId), castToInt);
                     customer.StateProvinceId = getAttributeValue(customerAttributes, nameof(Customer.StateProvinceId), castToInt);
                     customer.VatNumberStatusId = getAttributeValue(customerAttributes, nameof(Customer.VatNumberStatusId), castToInt);
@@ -121,10 +119,14 @@ namespace Nop.Data.Migrations.UpgradeTo460
                     customer.LanguageId = languages.FirstOrDefault(l => l.Id == getAttributeValue(customerAttributes, nameof(Customer.LanguageId), castToInt))?.Id;
                     customer.TaxDisplayTypeId = getAttributeValue(customerAttributes, nameof(Customer.TaxDisplayTypeId), castToInt);
                     customer.DateOfBirth = getAttributeValue(customerAttributes, nameof(Customer.DateOfBirth), castToDateTime);
+
+                    //#6789
+                    if (string.IsNullOrEmpty(customer.CustomCustomerAttributesXML))
+                        customer.CustomCustomerAttributesXML = getAttributeValue(customerAttributes, customCustomerAttributeName, castToString, int.MaxValue);
                 }
 
-                _dataProvider.UpdateEntitiesAsync(customers);
-                _dataProvider.BulkDeleteEntitiesAsync(genericAttributes);
+                _dataProvider.UpdateEntities(customers);
+                _dataProvider.BulkDeleteEntities(genericAttributes);
             }
 
             //#3777 new activity log types
@@ -213,7 +215,7 @@ namespace Nop.Data.Migrations.UpgradeTo460
             //#5809
             if (!_dataProvider.GetTable<ScheduleTask>().Any(st => string.Compare(st.Type, "Nop.Services.Gdpr.DeleteInactiveCustomersTask, Nop.Services", StringComparison.InvariantCultureIgnoreCase) == 0))
             {
-                var manageConnectionStringPermission = _dataProvider.InsertEntity(
+                var _ = _dataProvider.InsertEntity(
                     new ScheduleTask
                     {
                         Name = "Delete inactive customers (GDPR)",
@@ -260,10 +262,24 @@ namespace Nop.Data.Migrations.UpgradeTo460
                 }
             }
 
+            var lastEnabledUtc = DateTime.UtcNow;
+            if (!_dataProvider.GetTable<ScheduleTask>().Any(st => string.Compare(st.Type, "Nop.Services.Common.ResetLicenseCheckTask, Nop.Services", StringComparison.InvariantCultureIgnoreCase) == 0))
+            {
+                _dataProvider.InsertEntity(new ScheduleTask
+                {
+                    Name = "ResetLicenseCheckTask",
+                    Seconds = 2073600,
+                    Type = "Nop.Services.Common.ResetLicenseCheckTask, Nop.Services",
+                    Enabled = true,
+                    LastEnabledUtc = lastEnabledUtc,
+                    StopOnError = false
+                });
+            }
+
             //#3651
             if (!_dataProvider.GetTable<MessageTemplate>().Any(mt => string.Compare(mt.Name, MessageTemplateSystemNames.OrderProcessingCustomerNotification, StringComparison.InvariantCultureIgnoreCase) == 0))
             {
-                var manageConnectionStringPermission = _dataProvider.InsertEntity(
+                var _ = _dataProvider.InsertEntity(
                     new MessageTemplate
                     {
                         Name = MessageTemplateSystemNames.OrderProcessingCustomerNotification,
@@ -280,7 +296,7 @@ namespace Nop.Data.Migrations.UpgradeTo460
             if (paRange is not null)
             {
                 paRange.Name = "2 weeks";
-                _dataProvider.UpdateEntityAsync(paRange).Wait();
+                _dataProvider.UpdateEntity(paRange);
             }
         }
 
