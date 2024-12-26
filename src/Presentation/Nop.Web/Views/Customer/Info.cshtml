@@ -42,6 +42,13 @@
                                     <input type="radio" asp-for="Gender" value="F" checked="@(Model.Gender == "F")" id="gender-female" />
                                     <label class="forcheckbox" for="gender-female">@T("Account.Fields.Gender.Female")</label>
                                 </span>
+                                @if (Model.NeutralGenderEnabled)
+                                {
+                                    <span class="Neutral">
+                                        <input type="radio" asp-for="Gender" value="N" checked="@(Model.Gender == "N")" id="gender-neutral" />
+                                        <label class="forcheckbox" for="gender-neutral">@T("Account.Fields.Gender.Neutral")</label>
+                                    </span>
+                                }
                             </div>
                         </div>
                     }
@@ -154,6 +161,11 @@
                             <div class="inputs">
                                 <label asp-for="VatNumber" asp-postfix=":"></label>
                                 <input asp-for="VatNumber" />
+                                @if (Model.VatNumberRequired)
+                                {
+                                    <nop-required />
+                                }
+                                <span asp-validation-for="VatNumber"></span>
                                 <span class="vat-status">@Model.VatNumberStatusNote</span>
                                 <span class="vat-note">
                                     <em>@T("Account.Fields.VatNumber.Note")</em>
@@ -432,7 +444,7 @@
                             if (consent.IsRequired)
                             {
                                 <script asp-location="Footer">
-                                    $(document).ready(function() {
+                                    $(function() {
                                         $('#save-info-button').on('click', function() {
                                             if ($('#consent@(consent.Id)').is(':checked')) {
                                                     //do some stuff
